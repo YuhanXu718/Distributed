@@ -1,0 +1,76 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import networkx as nx
+from scipy.spatial import distance_matrix
+from math import log, pi, ceil
+from scipy.optimize import fsolve
+
+# Setting the communication radius
+r = input("Please enter the communication radius of the sensor(in meters): ")
+Comm_Radius = int(r)
+
+# Definition of the sizes
+Area_Length = 100              # The length of the area, both length and width are the same
+Area_Size = Area_Length ** 2
+Area_Coverage = 0.999          # Define the total coverage of the sensors
+
+# Minimum amount of sensors according to Poisson coverage model for coverage
+def nodes_for_coverage (area_size, sensor_radius, coverage_required):
+    return ceil(-area_size * np.log(1-coverage_required)/ (pi * sensor_radius**2) )
+
+# Minimum amount of sensors according to RGG
+def nodes_for_connectivity (normalized_radius,dimension):
+    def equation (n_array):
+        '''This is the equation for RGG'''
+        return (2 * np.log(n_array[0])) /n_array[0] - normalized_radius ** dimension
+
+    n_array = [10.0]
+    n_connectivity = fsolve(equation, n_array)    #Calculation the equation equals to 0, n_array is a start point
+    return int(ceil(n_connectivity[0]))
+
+n_coverage = nodes_for_coverage(Area_Size, Comm_Radius, Area_Coverage)
+print(f"Minimum sensors required for coverage: {n_coverage}")
+n_connectivity = nodes_for_connectivity(Comm_Radius / Area_Length, dimension=2)
+print(f"Minimum sensors required for connectivity: {n_connectivity}")
+
+n_final = max(n_connectivity, n_coverage)
+print(f"Final number of sensors used: {n_final}")
+
+# Random place the sensors
+
+# np.random.seed(42)
+sensor_location = np.random.uniform(0, Area_Length, (n_final, 2))
+
+# Calculate Euclidean distance matrix
+Euc_matrix = distance_matrix(sensor_location, sensor_location)
+
+# Calculate adjacency matrix
+adj_matrix = (Euc_matrix <= Comm_Radius) & (Euc_matrix > 0)
+
+# Build network graph
+Graphs = nx.Graph()
+for i in range(n_final):
+    Graphs.add_node(i, pos = tuple(sensor_location[i]))
+
+for j in range(n_final):
+    for k in range (j+1, n_final):
+        if adj_matrix[j,k]:
+            Graphs.add_edge(j, k)
+
+# Check connectivity
+connection_state = nx.is_connected(Graphs)
+if connection_state:
+    print("The graph is connected")
+else:
+    print("The graph is not connected")
+
+# Visualize the graph
+pos_dict = {i: sensor_location[i] for i in range(n_final)}
+plt.figure(figsize=(8, 8))
+nx.draw(Graphs, pos=pos_dict, node_size=50, with_labels=False,
+        node_color='skyblue', edge_color='gray')
+plt.title(f"Random Geometric Graph (Connected: {connection_state})")
+plt.grid(True)
+plt.xlim(0, Area_Length)
+plt.ylim(0, Area_Length)
+plt.show()
