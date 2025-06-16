@@ -4,73 +4,227 @@ import networkx as nx
 from scipy.spatial import distance_matrix
 from math import log, pi, ceil
 from scipy.optimize import fsolve
+print("Do you like the communication radius fixed(option 1) or the number of sensors fixed(option 2)? ")
+selection = input(" Look in my eyes! Answer me!:")
+if selection != "1" and selection != "2":
+    print("Holy shit!")
+else:
+    print("Do you want to check certain number of your choice(option 1) or you want to see a tendency(option 2)? :")
+    selection_2 = input(" Look in my eyes! Answer me!:")
+    if selection_2 != "1" and selection_2 != "2":
+        print("Holy shit again!")
 
-# Setting the communication radius
-r = input("Please enter the communication radius of the sensor(in meters): ")
-Comm_Radius = int(r)
-
+if selection == "1":
+    if selection_2 == "1":
+        selection_final = 1
+    else:
+        selection_final = 2
+elif selection_2 == "1":
+    selection_final = 3
+else:
+    selection_final = 4
+print(selection_final)
 # Definition of the sizes
 Area_Length = 100              # The length of the area, both length and width are the same
 Area_Size = Area_Length ** 2
 Area_Coverage = 0.999          # Define the total coverage of the sensors
+Connected_Prob = 0.99
 
-# Minimum amount of sensors according to Poisson coverage model for coverage
-def nodes_for_coverage (area_size, sensor_radius, coverage_required):
-    return ceil(-area_size * np.log(1-coverage_required)/ (pi * sensor_radius**2) )
+
+# Known r, calculate n
+def nodes_for_coverage(area_size, Comm_Radius, coverage_required):
+    return ceil(-area_size * np.log(1 - coverage_required) / (pi * Comm_Radius ** 2))
+
 
 # Minimum amount of sensors according to RGG
-def nodes_for_connectivity (normalized_radius,dimension):
-    def equation (n_array):
+def nodes_for_connectivity(normalized_radius, dimension, probability):
+    def equation(n_array):
         '''This is the equation for RGG'''
-        return (2 * np.log(n_array[0])) /n_array[0] - normalized_radius ** dimension
+        return (2 * np.log(n_array[0])) / n_array[0] - normalized_radius ** dimension
 
     n_array = [10.0]
-    n_connectivity = fsolve(equation, n_array)    #Calculation the equation equals to 0, n_array is a start point
-    return int(ceil(n_connectivity[0]))
+    n_connectivity = fsolve(equation, n_array)  # Calculation the equation equals to 0, n_array is a start point
+    # Consider the probability of connection
+    n_prob = ceil(np.sqrt(1 / (1 - probability)))
 
-n_coverage = nodes_for_coverage(Area_Size, Comm_Radius, Area_Coverage)
-print(f"Minimum sensors required for coverage: {n_coverage}")
-n_connectivity = nodes_for_connectivity(Comm_Radius / Area_Length, dimension=2)
-print(f"Minimum sensors required for connectivity: {n_connectivity}")
+    return max(int(ceil(n_connectivity[0])), n_prob)
 
-n_final = max(n_connectivity, n_coverage)
-print(f"Final number of sensors used: {n_final}")
+def nodes_final (Comm_Radius):
+    # Calculate number of nodes
+    n_coverage = nodes_for_coverage(Area_Size, Comm_Radius, Area_Coverage)
+    print(f"Minimum sensors required for coverage: {n_coverage}")
+    n_connectivity = nodes_for_connectivity(Comm_Radius / Area_Length, dimension=2, probability=Connected_Prob)
+    print(f"Minimum sensors required for connectivity: {n_connectivity}")
 
-# Random place the sensors
+    n_final = max(n_connectivity, n_coverage)
+    print(f"Final number of sensors used: {n_final}")
+    # Random place the sensors
+    # np.random.seed(42)
+    sensor_location = np.random.uniform(0, Area_Length, (n_final, 2))
 
-# np.random.seed(42)
-sensor_location = np.random.uniform(0, Area_Length, (n_final, 2))
+    # Calculate Euclidean distance matrix
+    Euc_matrix = distance_matrix(sensor_location, sensor_location)
 
-# Calculate Euclidean distance matrix
-Euc_matrix = distance_matrix(sensor_location, sensor_location)
+    # Calculate adjacency matrix
+    adj_matrix = (Euc_matrix <= Comm_Radius) & (Euc_matrix > 0)
 
-# Calculate adjacency matrix
-adj_matrix = (Euc_matrix <= Comm_Radius) & (Euc_matrix > 0)
+    # Build network graph
+    Graphs = nx.Graph()
+    for i in range(n_final):
+        Graphs.add_node(i, pos=tuple(sensor_location[i]))
 
-# Build network graph
-Graphs = nx.Graph()
-for i in range(n_final):
-    Graphs.add_node(i, pos = tuple(sensor_location[i]))
+    for j in range(n_final):
+        for k in range(j + 1, n_final):
+            if adj_matrix[j, k]:
+                Graphs.add_edge(j, k)
+    return(Graphs, n_final, sensor_location)
+if selection_final == 1:
+    # Circle for different r
+    r_values = []
+    n_values = []
+    connected_count = 0
+    disconnected_count = 0
+    for Comm_Radius in range(5, 100, 1):
 
-for j in range(n_final):
-    for k in range (j+1, n_final):
-        if adj_matrix[j,k]:
-            Graphs.add_edge(j, k)
+        Graphs, n_final,_ = nodes_final(Comm_Radius)
+        # Check connectivity
+        connection_state = nx.is_connected(Graphs)
+        if connection_state:
+            print("The graph is connected")
+            connected_count += 1
+            r_values.append(Comm_Radius)
+            n_values.append(n_final)
+        else:
+            print("The graph is not connected")
 
-# Check connectivity
-connection_state = nx.is_connected(Graphs)
-if connection_state:
-    print("The graph is connected")
-else:
-    print("The graph is not connected")
+    print(f"Connected graphs: {connected_count}")
+    print(f"Disconnected graphs: {disconnected_count}")
 
-# Visualize the graph
-pos_dict = {i: sensor_location[i] for i in range(n_final)}
-plt.figure(figsize=(8, 8))
-nx.draw(Graphs, pos=pos_dict, node_size=50, with_labels=False,
-        node_color='skyblue', edge_color='gray')
-plt.title(f"Random Geometric Graph (Connected: {connection_state})")
-plt.grid(True)
-plt.xlim(0, Area_Length)
-plt.ylim(0, Area_Length)
-plt.show()
+    # Plot r vs n
+    plt.figure(figsize=(10, 6))
+    plt.plot(r_values, n_values, marker='o')
+    plt.xlabel("Communication Radius r (m)")
+    plt.ylabel("Required Number of Sensors n")
+    plt.yscale('log')
+    plt.title("Relation between r and n (Connected graphs only)")
+    plt.grid(True)
+    plt.show()
+
+if selection_final == 2:
+    Comm_Radius = input("Please input the communication Radius r (m):")
+    Graphs, n_final, sensor_location = nodes_final(int(Comm_Radius))
+    connection_state = nx.is_connected(Graphs)
+    if connection_state:
+        print("The graph is connected")
+    else:
+        print("The graph is not connected")
+    # Visualize the graph
+    pos_dict = {i: sensor_location[i] for i in range(n_final)}
+    plt.figure(figsize=(8, 8))
+    nx.draw(Graphs, pos=pos_dict, node_size=50, with_labels=False,
+            node_color='skyblue', edge_color='gray')
+    plt.title(f"Random Geometric Graph (Connected: {connection_state})")
+    plt.grid(True)
+    plt.xlim(0, Area_Length)
+    plt.ylim(0, Area_Length)
+    plt.show()
+
+
+# Known n, calculate r
+
+def radius_for_coverage(number_nodes):
+    r_cov = np.sqrt(-Area_Size * log(1 - Area_Coverage) / (pi * number_nodes))
+    maximum_radius = Area_Length * np.sqrt(2)
+    if r_cov > maximum_radius:
+        return maximum_radius
+    else:
+        return r_cov
+
+def radius_for_connectivity(number_nodes):
+    if (1 - 1/(number_nodes **2)) < Connected_Prob:
+        maximum_radius = Area_Length * np.sqrt(2)
+        return maximum_radius
+    else:
+        r_conn = Area_Length * np.sqrt(2 * log(number_nodes)/number_nodes)
+        return r_conn
+
+def radius_final(number_nodes):
+    r_coverage = radius_for_coverage(number_nodes)
+    print(f"Minimum radius required for coverage: {r_coverage}")
+    r_connectivity = radius_for_connectivity(number_nodes)
+    print(f"Minimum radius of sensors required for connectivity: {r_connectivity}")
+
+    r_final = max(r_connectivity, r_coverage)
+    print(f"Final radius of sensors used: {r_final}")
+    # Random place the sensors
+    # np.random.seed(42)
+    sensor_location = np.random.uniform(0, Area_Length, (number_nodes, 2))
+
+    # Calculate Euclidean distance matrix
+    Euc_matrix = distance_matrix(sensor_location, sensor_location)
+
+    # Calculate adjacency matrix
+    adj_matrix = (Euc_matrix <= r_final) & (Euc_matrix > 0)
+
+    # Build network graph
+    Graphs = nx.Graph()
+    for i in range(number_nodes):
+        Graphs.add_node(i, pos=tuple(sensor_location[i]))
+
+    for j in range(number_nodes):
+        for k in range(j + 1, number_nodes):
+            if adj_matrix[j, k]:
+                Graphs.add_edge(j, k)
+    return(Graphs, r_final, sensor_location)
+
+
+if selection_final == 3:
+    # Circle for different n
+    r_values = []
+    n_values = []
+    connected_count = 0
+    disconnected_count = 0
+    for number_nodes in range(1, 1000, 50):
+
+        Graphs, r_final,_ = radius_final(number_nodes)
+        # Check connectivity
+        connection_state = nx.is_connected(Graphs)
+        if connection_state:
+            print("The graph is connected")
+            connected_count += 1
+            r_values.append(r_final)
+            n_values.append(number_nodes)
+        else:
+            print("The graph is not connected")
+
+    print(f"Connected graphs: {connected_count}")
+    print(f"Disconnected graphs: {disconnected_count}")
+
+    # Plot r vs n
+    plt.figure(figsize=(10, 6))
+    plt.plot(n_values, r_values, marker='o')
+    plt.xlabel("Number of Sensors n")
+    plt.ylabel("Required Communication Radius r (m)")
+    #plt.yscale('log')
+    plt.title("Relation between n and r (Connected graphs only)")
+    plt.grid(True)
+    plt.show()
+
+if selection_final == 4:
+    number_nodes = input("Please input the number of sensors:")
+    Graphs, r_final, sensor_location = radius_final(int(number_nodes))
+    connection_state = nx.is_connected(Graphs)
+    if connection_state:
+        print("The graph is connected")
+    else:
+        print("The graph is not connected")
+    # Visualize the graph
+    pos_dict = {i: sensor_location[i] for i in range(int(number_nodes))}
+    plt.figure(figsize=(8, 8))
+    nx.draw(Graphs, pos=pos_dict, node_size=50, with_labels=False,
+            node_color='skyblue', edge_color='gray')
+    plt.title(f"Random Geometric Graph (Connected: {connection_state})")
+    plt.grid(True)
+    plt.xlim(0, Area_Length)
+    plt.ylim(0, Area_Length)
+    plt.show()
